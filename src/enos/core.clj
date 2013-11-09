@@ -8,6 +8,16 @@
   (delay (-> (Runtime/getRuntime)
              (.availableProcessors))))
 
+(defn drain [ch]
+  "Consumes and discards all values in the channel."
+  (go-loop [] (<! ch)))
+
+(defmacro pause! [ms]
+  `(<! (async/timeout ~ms)))
+
+(defn pause!! [ms]
+  (<!! (async/timeout ms)))
+
 (defmacro dochan* [loop-sym take-sym [binding ch] & body]
   `(let [ch# ~ch]
      (~loop-sym []
@@ -18,19 +28,20 @@
                       (recur)))))))
 
 (defmacro dochan!
-  "Asynchronously execute the body for each value in the channel,
-  extracting with <!."
+  "Asynchronously executes the body for each value in the channel,
+  extracting with <! and binding the result to `binding`."
   [[binding ch] & body]
   `(dochan* go-loop <! [~binding  ~ch] ~@body))
 
 (defmacro dochan!!
-  "Synchronously execute the body for each value in the channel,
-  extracting with <!!. Will block until the channel is closed."
+  "Synchronously executes the body for each value in the channel,
+  extracting with <!! and binding the result to `binding`. Will block
+  until the channel is closed."
   [[binding ch] & body]
   `(dochan* loop <!! [~binding ~ch] ~@body))
 
 (defn fork
-  "Return two or more new channels that tap the given channel."
+  "Returntwo or more new channels that tap the given channel."
   ([ch]
      (fork ch 2))
   ([ch n]
@@ -43,10 +54,11 @@
        chs)))
 
 (defn pmap<
-  "Parallel map over the input channel. Executes `n` threads that
-  apply the given function to values from the channel. Returns a new
+  "Parallel map over a channel. Executes `n` worker threads,
+  each of which applies `f` to values from the channel. Returns a new
   channel containing the return valus of `f`, in the same order as the
   input channel."
+  ;; TODO - support more than one input channel
   ([f ch]
      (pmap< f ch (* 2 @processors)))
   ([f ch n]
@@ -57,12 +69,69 @@
             (deliver p (f v)))))
        (async/map< (comp deref second) c2))))
 
-(defn drain [ch]
-  "Consume and discard all values in the channel."
-  (go-loop [] (<! ch)))
-
 (defmacro pdochan! [n [binding ch] & body]
   "WIP - Execute the body in `n` threads."
   `(drain (pmap< (fn [~binding] ~@body :nil) ~ch ~n)))
+
+
+(defn chan->seq
+  "Returns a lazy-seq of the values from a channel. Ends when either:
+   - the channel is closed, or
+   - it takes more than `timeout` milliseconds to get the next value."
+  ([ch]
+     (chan->seq ch nil))
+  ([ch timeout]
+     (lazy-seq
+      (let [chs   (vec (cons ch (when timeout (list (async/timeout timeout)))))
+            [v _] (async/alts!! chs)]
+        (when-not (nil? v)
+          (cons v (chan->seq ch timeout)))))))
+
+(defmacro generator
+  "Emulates, more-or-less, a Python / JavaScript generator. Returns an
+  unbuffered channel whose values are produced by calls to `yield`
+  within the body."
+  [& body]
+  (let [ch   (gensym "ch")
+        body (clojure.walk/prewalk (fn [f]
+                                     (if (and (list? f) (= 'yield (first f)))
+                                       (list* `>!! ch (rest f))
+                                       f))
+                                   body)]
+    `(let [~ch (async/chan)]
+       (go ~@body
+           (async/close! ~ch))
+       ~ch)))
+
+(defmacro defgenerator
+  "Defines a function that returns a channel. The channel's value's
+  are produced by calls to `yield` with the body."
+  ;; TODO - support multi-arity
+  [name arglist & body]
+  `(defn ~name ~arglist
+     (generator ~@body)))
+
+(defn poisson
+  "Generate values via a Poisson process.
+   - interval - tick interval in milliseconds
+   - prob - number > 0.0 and < 1.0 - probability of emitting an event at each tick
+   - fn0 - function to generate the next value
+   - iterations - optional - end after this many ticks. If nil, it goes forever.
+  "
+  ([interval prob fn0]
+     (poisson interval prob fn0 nil))
+  ([interval prob fn0 iterations]
+     (generator
+      (loop [remaining iterations]
+        (when (and iterations (pos? remaining))
+          (pause! interval)
+          (if (< (rand) prob)
+            (yield (fn0)))
+          (recur (dec remaining)))))))
+
+(defgenerator fib []
+  (loop [a 1 b 1]
+    (yield a)
+    (recur b (+ a b))))
 
 
