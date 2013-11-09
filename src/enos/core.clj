@@ -17,13 +17,20 @@
                       ~@body
                       (recur)))))))
 
-(defmacro dochan! [[binding ch] & body]
+(defmacro dochan!
+  "Asynchronously execute the body for each value in the channel,
+  extracting with <!."
+  [[binding ch] & body]
   `(dochan* go-loop <! [~binding  ~ch] ~@body))
 
-(defmacro dochan!! [[binding ch] & body]
+(defmacro dochan!!
+  "Synchronously execute the body for each value in the channel,
+  extracting with <!!. Will block until the channel is closed."
+  [[binding ch] & body]
   `(dochan* loop <!! [~binding ~ch] ~@body))
 
 (defn fork
+  "Return two or more new channels that tap the given channel."
   ([ch]
      (fork ch 2))
   ([ch n]
@@ -36,6 +43,10 @@
        chs)))
 
 (defn pmap<
+  "Parallel map over the input channel. Executes `n` threads that
+  apply the given function to values from the channel. Returns a new
+  channel containing the return valus of `f`, in the same order as the
+  input channel."
   ([f ch]
      (pmap< f ch (* 2 @processors)))
   ([f ch n]
@@ -47,9 +58,11 @@
        (async/map< (comp deref second) c2))))
 
 (defn drain [ch]
+  "Consume and discard all values in the channel."
   (go-loop [] (<! ch)))
 
 (defmacro pdochan! [n [binding ch] & body]
+  "WIP - Execute the body in `n` threads."
   `(drain (pmap< (fn [~binding] ~@body :nil) ~ch ~n)))
 
 

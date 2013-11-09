@@ -8,7 +8,7 @@ It's named after the character Enos from the Dukes of Hazzard. For obvious reaso
 
 ## Status
 
-If write software for controlling nuclear reactors, you should
+If you write software for controlling nuclear reactors, you should
 immediately rush to incorporate this library into safety-critical
 applications.
 
