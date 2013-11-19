@@ -71,7 +71,7 @@
 
 (defmacro pdochan! [n [binding ch] & body]
   "WIP - Execute the body in `n` threads."
-  `(drain (pmap< (fn [~binding] ~@body :nil) ~ch ~n)))
+  `(drain (pmap< (fn [~binding] ~@body nil) ~ch ~n)))
 
 
 (defn chan->seq

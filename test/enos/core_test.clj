@@ -17,7 +17,9 @@
   ([n]
      (arange n nil))
   ([n ms]
-     (let [ch (async/chan 10)
+     (arange n ms nil))
+  ([n ms buf-or-n]
+     (let [ch (async/chan buf-or-n)
            f  (slow identity ms)]
        (thread
         (dotimes [i n]
@@ -43,10 +45,9 @@
       ;; amount, else this gets flakey).
       (is (= 45 @a)))))
 
-;;; WTF??!?!?
-#_(deftest test-fork
+(deftest test-fork
   (let [c (arange 10)
-        [c1 c2 c3] (map chan->seq (enos/fork c 3))]
+        [c1 c2 c3] (map #(chan->seq % 1000) (enos/fork c 3 11))]
     (async/close! c)
     (is (= (range 10) c1 c2 c3))))
 
@@ -67,7 +68,7 @@
 
 (deftest test-lazy-seq
   (is (= (range 10) (chan->seq (arange 10))))
-  (let [c (arange 10 100)]
+  (let [c (arange 10 100 10)]
     (pause!! 310)
     ;; c should contain [0 1 2] by now...
     (is (= (range 3) (chan->seq c 50)))
