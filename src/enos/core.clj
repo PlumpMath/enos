@@ -1,6 +1,7 @@
 (ns enos.core
+  "Utilities for core.async."
   (:require [clojure.core.async :as async
-             :refer [go go-loop <! >! <!! >!! thread]]))
+             :refer [go go-loop <! >! <!! >!! thread close!]]))
 
 
 (def ^:private
@@ -8,15 +9,34 @@
   (delay (-> (Runtime/getRuntime)
              (.availableProcessors))))
 
-(defn drain [ch]
-  "Consumes and discards all values in the channel."
-  (go-loop [] (<! ch)))
-
-(defmacro pause! [ms]
+(defmacro pause!
+  "Used in a go-block, pauses execution for `ms` milliseconds without
+  blocking a thread."
+  [ms]
   `(<! (async/timeout ~ms)))
 
-(defn pause!! [ms]
+(defn pause!!
+  "Blocks the calling thread for `ms` milliseconds."
+  [ms]
   (<!! (async/timeout ms)))
+
+(defn arange
+  "Returns a channel that will produce the numbers from 0 to n-1 and then close.
+  If `ms` is provided, pauses that many milliseconds before emitting
+  each number."
+  ([n]
+     (arange n nil))
+  ([n ms]
+     (arange n ms nil))
+  ([n ms buf-or-n]
+     (let [ch (async/chan buf-or-n)]
+       (go
+         (dotimes [i n]
+           (when (and ms (pos? ms))
+             (<! (async/timeout ms)))
+           (>! ch i))
+         (close! ch))
+       ch)))
 
 (defmacro dochan* [loop-sym take-sym [binding ch] & body]
   `(let [ch# ~ch]
@@ -40,8 +60,16 @@
   [[binding ch] & body]
   `(dochan* loop <!! [~binding ~ch] ~@body))
 
+(defn drain! [ch]
+  "Consumes and discards all values in the channel, asynchronously."
+  (dochan! [_ ch]))
+
+(defn drain!! [ch]
+  "Consumes and discards all values in the channel."
+  (dochan!! [_ ch]))
+
 (defn fork
-  "Returntwo or more new channels that tap the given channel."
+  "Return two or more new channels that tap the given channel."
   ([ch]
      (fork ch 2))
   ([ch n]
@@ -71,7 +99,7 @@
 
 (defmacro pdochan! [n [binding ch] & body]
   "WIP - Execute the body in `n` threads."
-  `(drain (pmap< (fn [~binding] ~@body nil) ~ch ~n)))
+  `(drain! (pmap< (fn [~binding] ~@body nil) ~ch ~n)))
 
 
 (defn chan->seq
@@ -95,7 +123,7 @@
   (let [ch   (gensym "ch")
         body (clojure.walk/prewalk (fn [f]
                                      (if (and (list? f) (= 'yield (first f)))
-                                       (list* `>!! ch (rest f))
+                                       (list* `>! ch (rest f))
                                        f))
                                    body)]
     `(let [~ch (async/chan)]

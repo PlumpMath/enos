@@ -1,11 +1,21 @@
 (ns enos.core-test
   (:require [clojure.test :refer :all]
-            [enos.core :as enos :refer [dochan! dochan!! pmap< chan->seq pause!!]]
+            [enos.core :as enos :refer [pause! pause!!
+                                        arange
+                                        dochan! dochan!!
+                                        pmap<
+                                        chan->seq
+                                        generator defgenerator
+                                        fib poisson
+                                        ]]
             [clojure.core.async :as async :refer [go thread <!! >!! close!]]))
 
 
+(defn now []
+  (System/currentTimeMillis))
+
 (defn slow
-  "... and low, that is the tempo"
+  "... and low, that is the tempo."
   [f ms]
   (if (and ms (pos? ms))
     (fn [& args]
@@ -13,19 +23,17 @@
       (apply f args))
     f))
 
-(defn arange
-  ([n]
-     (arange n nil))
-  ([n ms]
-     (arange n ms nil))
-  ([n ms buf-or-n]
-     (let [ch (async/chan buf-or-n)
-           f  (slow identity ms)]
-       (thread
-        (dotimes [i n]
-          (>!! ch (f i)))
-        (close! ch))
-       ch)))
+(defmacro timed [& body]
+  `(let [start# (System/nanoTime)
+         ret#   (do ~@body)
+         ms#     (/ (double (- (System/nanoTime) start#)) 1000000.0)]
+     [ms# ret#]))
+
+(deftest test-pause
+  (let [ch (go (pause! 20))
+        t1 (now)]
+    (<!! ch)
+    (is (<= 20 (- (now) t1)))))
 
 (deftest test-dochan
   (testing "double-bang dochan executes synchronously"
@@ -47,15 +55,22 @@
 
 (deftest test-fork
   (let [c (arange 10)
-        [c1 c2 c3] (map #(chan->seq % 1000) (enos/fork c 3 11))]
+        [c1 c2 c3] (enos/fork c 3 11)
+        [s1 s2 s3] (map #(chan->seq % 10) [c1 c2 c3])]
     (async/close! c)
-    (is (= (range 10) c1 c2 c3))))
+    (doseq [s [s1 s2 s3]]
+      (is (= (range 10) s)))))
 
-(deftest test-pmap
-  (let [c-in (arange 20 100)
-        c-out (pmap< (slow identity 200) c-in)]
-    (let [result (time (<!! (async/into [] c-out)))]
-      (is (= (range 20) result)))))
+(deftest test-pmap-makes-it-faster
+  ;; Scenario: channel produces items every 20 ms, but they take 50
+  ;; ms to process. Keep up.
+  (let [c-in  (arange 10 20)
+        c-out (pmap< (slow identity 50) c-in)]
+    (let [[t result] (timed (<!! (async/into [] c-out)))]
+      (is (= (range 10) result))
+      (is (< t 500))                  ; It would take at least 500
+                                        ; ms to process sequentially
+      )))
 
 (deftest test-pmap-retains-order
   (let [in-ch (arange 20 100)
@@ -68,11 +83,28 @@
 
 (deftest test-lazy-seq
   (is (= (range 10) (chan->seq (arange 10))))
+  (is (= (range 10) (chan->seq (arange 10 10) 20)))
+  (is (= ()         (chan->seq (arange 10 20) 10)))
   (let [c (arange 10 100 10)]
     (pause!! 310)
     ;; c should contain [0 1 2] by now...
     (is (= (range 3) (chan->seq c 50)))
     ))
+
+(defgenerator foo [n]
+  (loop [i n]
+    (when (pos? i)
+      (yield i)
+      (recur (dec i)))))
+
+(deftest test-generator
+  (let [g (generator (yield 1) (yield 2) (yield 3))]
+    (is (= [1 2 3] (chan->seq g))))
+
+  (is (= [3 2 1] (chan->seq (foo 3))))
+
+  (is (= [1 1 2 3 5 8 13 21] (take 8 (chan->seq (fib))))))
+
 
 ;; Local Variables:
 ;; mode: clojure
