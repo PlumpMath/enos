@@ -54,12 +54,10 @@
       (is (= 45 @a)))))
 
 (deftest test-fork
-  (let [c (arange 10)
-        [c1 c2 c3] (enos/fork c 3 11)
-        [s1 s2 s3] (map #(chan->seq % 10) [c1 c2 c3])]
-    (async/close! c)
-    (doseq [s [s1 s2 s3]]
-      (is (= (range 10) s)))))
+  (let [c (arange 10 10)
+        [c1 c2 c3] (enos/fork c 3 10)
+        [s1 s2 s3] (map #(chan->seq % 20) [c1 c2 c3])]
+    (is (= (range 10) s1 s2 s3))))
 
 (deftest test-pmap-makes-it-faster
   ;; Scenario: channel produces items every 20 ms, but they take 50
