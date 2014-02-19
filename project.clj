@@ -1,4 +1,4 @@
-(defproject enos "0.1.1"
+(defproject enos "0.1.2"
   
   :description "Clojure core.async utilities"
   :url "http://github.com/grammati/enos"
