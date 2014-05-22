@@ -33,7 +33,7 @@
        (go
          (dotimes [i n]
            (when (and ms (pos? ms))
-             (<! (async/timeout ms)))
+             (pause! ms))
            (>! ch i))
          (close! ch))
        ch)))
@@ -114,6 +114,23 @@
             [v _] (async/alts!! chs)]
         (when-not (nil? v)
           (cons v (chan->seq ch timeout)))))))
+
+
+(defmacro <!+
+  "Returns a vector containing one value taken from each of a sequence
+  of channels, in the same order as the channels. Must be used in a go
+  block."
+  [chs]
+  `(let [chs# (zipmap ~chs (range))
+         res# (object-array (count chs#))]
+     (loop [chs# chs#]
+       (if (empty? chs#)
+         (vec res#)
+         (let [[v# ch#] (async/alts! (keys chs#))
+               idx#     (get chs# ch#)]
+           (aset res# idx# v#)
+           (recur (dissoc chs# ch#)))))))
+
 
 (defmacro generator
   "Emulates, more-or-less, a Python / JavaScript generator. Returns an

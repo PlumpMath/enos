@@ -7,6 +7,7 @@
                                         chan->seq
                                         generator defgenerator
                                         fib poisson
+                                        <!+
                                         ]]
             [clojure.core.async :as async :refer [go thread <!! >!! close!]]))
 
@@ -102,6 +103,14 @@
   (is (= [3 2 1] (chan->seq (foo 3))))
 
   (is (= [1 1 2 3 5 8 13 21] (take 8 (chan->seq (fib))))))
+
+
+(deftest test-multitake
+  (let [chs (for [ms [50 20 100]] (arange 100 ms))]
+    (let [[v1 v2 v3] (<!! (go (<!+ chs)))]
+      (is (= 0 v1 v2 v3)))
+    (let [[v1 v2 v3] (<!! (go (<!+ chs)))]
+      (is (= 1 v1 v2 v3)))))
 
 
 ;; Local Variables:
